@@ -1,0 +1,6 @@
+inputs/raw_data/**
+inputs/intermediate/**
+!inputs/raw_data/*/PLACE_FILES_HERE.txt
+.DS_Store
+.Rhistory
+.Rproj.user/
