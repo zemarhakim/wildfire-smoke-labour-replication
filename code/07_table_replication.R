@@ -13,7 +13,7 @@ rm(list = ls())
 # rm(list=ls()) above -- if run_all.R (or another script earlier in this
 # session) already set it, that value is used automatically. If not (running
 # this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
+PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")  # <-- EDIT THIS PATH IF RUNNING STANDALONE
 source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
 
 library(tidyverse)
@@ -24,7 +24,7 @@ library(glue)
 
 # ---- Paths ----
 DATA_PATH <- PANEL_IND_CSV
-OUTFILE   <- file.path(OUT_TABLES, "tables_1_2_3.xlsx")
+OUTFILE   <- file.path(OUT_TABLES, "estimates.xlsx")
 fig_dir   <- OUT_FIGURES
 dir.create(fig_dir, showWarnings = FALSE)
 
@@ -149,53 +149,41 @@ run_check_write_industry <- function(formula, data, table_label, outcome_label) 
   invisible(NULL)
 }
 
-# ---- Table 2: Baseline IV ----
+# ---- Baseline IV ----
 # 2020 excluded, hours in log(hours+1). Table2_Earnings / Table2_AvgHours /
 # Table2_Absent also supply the "population average" reference line for
 # Figure 2 later -- no separate fit needed for that.
 
-run_check_write(y_emp ~ mean_temp + total_precip | cma_name^month + year | pm25_15_rel ~ smoke_15_rel,
-                 panel_n2020, "Table2_Employment")
-run_check_write(y_lfp ~ mean_temp + total_precip | cma_name^month + year | pm25_15_rel ~ smoke_15_rel,
-                 panel_n2020, "Table2_LFP")
-run_check_write(y_log_earn ~ mean_temp + total_precip | cma_name^month + year | pm25_15_rel ~ smoke_15_rel,
-                 panel_n2020, "Table2_Earnings")
-run_check_write(y_log_hrs_p1 ~ mean_temp + total_precip | cma_name^month + year | pm25_15_rel ~ smoke_15_rel,
-                 panel_n2020, "Table2_AvgHours")
-run_check_write(y_condabs ~ mean_temp + total_precip | cma_name^month + year | pm25_15_rel ~ smoke_15_rel,
-                 panel_n2020, "Table2_Absent")
-
-# ---- Table 1: Pre/Post-COVID Split ----
-# Job-characteristic controls, 2020 excluded.
-
+baseline_formula <- function(outcome) {
+  as.formula(glue("{outcome} ~ mean_temp + total_precip | ",
+                   "cma_name^month + year | pm25_15_rel ~ smoke_15_rel"))
+}
+ 
+run_check_write(baseline_formula("y_emp"),        panel_n2020, "Baseline_Employment")
+run_check_write(baseline_formula("y_lfp"),        panel_n2020, "Baseline_LFP")
+run_check_write(baseline_formula("y_log_earn"),   panel_n2020, "Baseline_Earnings")
+run_check_write(baseline_formula("y_log_hrs_p1"), panel_n2020, "Baseline_AvgHours")
+run_check_write(baseline_formula("y_condabs"),    panel_n2020, "Baseline_Absent")
+ 
+# ---- Pre/Post-COVID Split ----
+# 2020 excluded. Same baseline specification as above.
+ 
 panel_pre  <- panel_n2020 %>% filter(year < 2020)
 panel_post <- panel_n2020 %>% filter(year > 2020)
-
-job_rhs_ctrl <- "union + pt + small_firm + union:public_sector"
-job_iv_lhs <- paste("pm25_15_rel", "pm25_15_rel:union", "pm25_15_rel:pt",
-                     "pm25_15_rel:small_firm", "pm25_15_rel:union:public_sector", sep = " + ")
-job_iv_rhs <- paste("smoke_15_rel", "smoke_15_rel:union", "smoke_15_rel:pt",
-                     "smoke_15_rel:small_firm", "smoke_15_rel:union:public_sector", sep = " + ")
-job_formula <- function(outcome) {
-  as.formula(glue("{outcome} ~ mean_temp + total_precip + {job_rhs_ctrl} | ",
-                   "cma_name^month + year | {job_iv_lhs} ~ {job_iv_rhs}"))
-}
-
-run_check_write(job_formula("y_log_hrs_p1"), panel_pre,  "Table1_Pre_AvgHours")
-run_check_write(job_formula("y_condabs"),    panel_pre,  "Table1_Pre_Absent")
-run_check_write(job_formula("y_log_earn"),   panel_pre,  "Table1_Pre_Earnings")
-run_check_write(job_formula("y_log_hrs_p1"), panel_post, "Table1_Post_AvgHours")
-run_check_write(job_formula("y_condabs"),    panel_post, "Table1_Post_Absent")
-run_check_write(job_formula("y_log_earn"),   panel_post, "Table1_Post_Earnings")
-
+ 
+run_check_write(baseline_formula("y_log_hrs_p1"), panel_pre,  "Pre_AvgHours")
+run_check_write(baseline_formula("y_condabs"),    panel_pre,  "Pre_Absent")
+run_check_write(baseline_formula("y_log_earn"),   panel_pre,  "Pre_Earnings")
+run_check_write(baseline_formula("y_log_hrs_p1"), panel_post, "Post_AvgHours")
+run_check_write(baseline_formula("y_condabs"),    panel_post, "Post_Absent")
+run_check_write(baseline_formula("y_log_earn"),   panel_post, "Post_Earnings")
+ 
 rm(panel_pre, panel_post)
 gc()
 
-# ---- Table 3 + Figure 2: Industry Interactions ----
+# ---- Industry Interactions ----
 # Manufacturing omitted, 2020 excluded. 17 industry categories (Agriculture/
-# Forestry/Fishing combined; Mining separate). Each of the three regressions
-# below is fit ONCE and feeds both the Table 3 Excel sheet and the Figure 2
-# plotting data.
+# Forestry/Fishing combined; Mining separate). 
 
 ind_list <- c("ind_ag_combined", "ind_mining",
               "ind_utilities", "ind_construction", "ind_wholesale", "ind_retail",
@@ -210,9 +198,9 @@ ind_formula <- function(outcome) {
                    "cma_name^month + year | {ind_iv_lhs} ~ {ind_iv_rhs}"))
 }
 
-run_check_write_industry(ind_formula("y_log_earn"),   panel_n2020, "Table3_Earnings", "Log Earnings")
-run_check_write_industry(ind_formula("y_log_hrs_p1"), panel_n2020, "Table3_AvgHours", "Actual Hours Worked")
-run_check_write_industry(ind_formula("y_condabs"),    panel_n2020, "Table3_Absent",   "Conditional Absence")
+run_check_write_industry(ind_formula("y_log_earn"),   panel_n2020, "Industry_Earnings", "Log Earnings")
+run_check_write_industry(ind_formula("y_log_hrs_p1"), panel_n2020, "Industry_AvgHours", "Actual Hours Worked")
+run_check_write_industry(ind_formula("y_condabs"),    panel_n2020, "Industry_Absent",   "Conditional Absence")
 
 rm(panel_n2020)
 gc()
