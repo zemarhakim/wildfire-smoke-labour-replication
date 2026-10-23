@@ -11,12 +11,29 @@
 
 rm(list = ls())
 
-# PROJECT_ROOT is read from an OS environment variable so it survives the
-# rm(list=ls()) above -- if run_all.R (or another script earlier in this
-# session) already set it, that value is used automatically. If not (running
-# this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
-source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
+# ---- Path setup --------------------------------------------------------------
+# Finds the replication folder automatically (no editing needed): looks for
+# the folder containing code/00_config.R, starting from PROJECT_ROOT (if set
+# and valid), then this script's own location, then the working directory.
+.find_root <- function() {
+  starts <- c(Sys.getenv("PROJECT_ROOT"),
+              tryCatch(dirname(sys.frame(1)$ofile), error = function(e) ""),
+              dirname(gsub("~+~", " ", sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)), fixed = TRUE)),
+              getwd())
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(path.expand(s), mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(d, "code", "00_config.R"))) return(d)
+      if (dirname(d) == d) break
+      d <- dirname(d)
+    }
+  }
+  stop("Can't find the replication folder. Either setwd() into it, or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
+}
+Sys.setenv(PROJECT_ROOT = .find_root())
+rm(.find_root)
+source(file.path(Sys.getenv("PROJECT_ROOT"), "code", "00_config.R"))
 
 library(httr)
 library(glue)

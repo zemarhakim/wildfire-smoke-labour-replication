@@ -1,37 +1,30 @@
 # ==============================================================================
 # 00_config.R
 # ------------------------------------------------------------------------------
-# This is the ONLY file where a path needs to be set. Every other script in
-# code/ sources this file directly.
+# Defines every path used by the pipeline. Sourced by every other script in
+# code/. Nothing in this file needs editing.
 #
-# HOW PROJECT_ROOT IS PASSED AROUND:
-# Every script in this pipeline starts with rm(list = ls()) so that running
-# the whole pipeline in one session (via run_all.R) doesn't accumulate every
-# previous stage's data in memory. That means PROJECT_ROOT can't be passed
-# from one script to the next as an ordinary R object -- rm(list=ls()) would
-# just delete it again at the top of the next script. Instead, PROJECT_ROOT
-# is read from an OS environment variable (Sys.getenv), which rm(list=ls())
-# cannot touch, since it isn't an R object at all.
+# HOW PROJECT_ROOT IS SET:
+# Each script (and run_all.R) finds the replication folder automatically --
+# the folder containing code/00_config.R -- and stores it in the PROJECT_ROOT
+# environment variable before sourcing this file. An environment variable is
+# used rather than an ordinary R object because every stage script starts
+# with rm(list = ls()), which would delete an ordinary object but cannot
+# touch an environment variable.
 #
 # HOW TO USE:
-#   - Running the whole pipeline: open run_all.R, edit PROJECT_ROOT there
-#     (it calls Sys.setenv() once, then every stage inherits it), and run
-#     run_all.R.
-#   - Running one script on its own: edit the PROJECT_ROOT fallback line near
-#     the top of that script, then run it directly. (If PROJECT_ROOT is
-#     already set as an environment variable -- e.g. you ran run_all.R
-#     earlier in the same session -- that value is used instead, and the
-#     fallback is ignored.)
+#   - Run one script on its own: open the replication folder (or setwd() into
+#     it) and run the script from the top.
+#   - Run the whole pipeline: run code/run_all.R.
+#   - If R can't find the folder (working directory somewhere unrelated), run
+#     Sys.setenv(PROJECT_ROOT = "/path/to/replication") first.
 # ==============================================================================
 
-# PROJECT_ROOT should already be set (as an env var) by whichever script
-# sourced this file. This is just a final safety net in case 00_config.R is
-# ever sourced completely on its own with nothing having set it yet.
-if (identical(Sys.getenv("PROJECT_ROOT"), "")) {
-  Sys.setenv(PROJECT_ROOT = "~/replication")
-  # <-- EDIT THIS to the folder containing inputs/, code/, and outputs/,
-  #     if you are sourcing 00_config.R directly rather than via
-  #     run_all.R or one of the numbered scripts.
+if (identical(Sys.getenv("PROJECT_ROOT"), "") ||
+    !file.exists(file.path(path.expand(Sys.getenv("PROJECT_ROOT")), "code", "00_config.R"))) {
+  stop("PROJECT_ROOT is not set to the replication folder. Run a script from ",
+       "code/ (they set it automatically), or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
 }
 
 PROJECT_ROOT <- path.expand(Sys.getenv("PROJECT_ROOT"))

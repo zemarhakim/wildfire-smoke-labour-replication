@@ -16,29 +16,33 @@
 #                                              table/figure script reads)
 #         inputs/intermediate/panel_month_sample.csv / panel_ind_sample.csv
 #         (500-row samples for quick inspection)
-#
-# FIX APPLIED (see README.txt "Known issues and fixes" for full explanation):
-# The 15-day-window smoke instrument (smoke_15 / smoke_15_rel) and the
-# reference-week smoke exposure (smoke_ref0 / smoke_refm1) were previously
-# demeaned BEFORE completing the CMA x month/week grid, so any CMA-month/week
-# with zero smoke-intersecting days got no row at all (rather than smoke=0),
-# silently dropping every individual in that cell from every IV regression
-# that uses these variables as the instrument. Both are now grid-completed
-# (missing = 0 smoke days) before demeaning. PM2.5 (pm25_15 / pm25_ref0 etc.)
-# is NOT changed the same way: a month with no monitoring-station data is
-# genuinely missing, not a known zero, so leaving it as NA (and letting those
-# rows drop via listwise deletion) is the correct behaviour there.
 # ==============================================================================
 
 rm(list=ls())
 
 # ---- Path setup --------------------------------------------------------------
-# PROJECT_ROOT is read from an OS environment variable so it survives the
-# rm(list=ls()) above -- if run_all.R (or another script earlier in this
-# session) already set it, that value is used automatically. If not (running
-# this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
-source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
+# Finds the replication folder automatically (no editing needed): looks for
+# the folder containing code/00_config.R, starting from PROJECT_ROOT (if set
+# and valid), then this script's own location, then the working directory.
+.find_root <- function() {
+  starts <- c(Sys.getenv("PROJECT_ROOT"),
+              tryCatch(dirname(sys.frame(1)$ofile), error = function(e) ""),
+              dirname(gsub("~+~", " ", sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)), fixed = TRUE)),
+              getwd())
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(path.expand(s), mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(d, "code", "00_config.R"))) return(d)
+      if (dirname(d) == d) break
+      d <- dirname(d)
+    }
+  }
+  stop("Can't find the replication folder. Either setwd() into it, or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
+}
+Sys.setenv(PROJECT_ROOT = .find_root())
+rm(.find_root)
+source(file.path(Sys.getenv("PROJECT_ROOT"), "code", "00_config.R"))
 
 # ---- Libraries ----
 library(tidyverse)
@@ -223,13 +227,6 @@ make_exposure_weeks <- function(pm25_cma_day, smoke_cma_day, lfs_ind) {
     summarise(pm25_refm1 = mean(pm25_day, na.rm = TRUE), .groups = "drop")
   
   # 3. Compute smoke-day exposures ---------------------------------------------
-  # FIX: a CMA-week with zero intersecting smoke polygons gets no row from
-  # group_by()/summarise() (it's not that smoke_ref0 is 0, there's no row for
-  # it at all). Left-joining that straight onto expo_weeks would leave those
-  # weeks as NA rather than 0, which then propagates into smoke_ref0_rel /
-  # smoke_refm1_rel below and silently drops those individuals from any
-  # regression using them. Grid-complete against refweek_def (every CMA-week
-  # in the LFS sample) and fill missing counts to 0 before returning.
   smoke_ref0 <- smoke_cma_day %>%
     rename(cma_name = CMANAME) %>%
     inner_join(refweek_def, by = "cma_name") %>%
@@ -1055,28 +1052,12 @@ smoke_15 <- smoke_cma_day %>%
     .groups = "drop"
   )
 
-# FIX (see header note): a CMA-month with zero smoke-intersecting days in its
-# 30-day window gets no row at all from group_by()/summarise() above -- it's
-# missing, not smoke_15 = 0. Demeaning on this incomplete table (as the
-# previous version did) then computing smoke_15_rel means:
-#   (a) the CMA mean used for demeaning excludes zero-smoke months entirely,
-#       biasing it upward, and
-#   (b) every individual respondent in a zero-smoke CMA-month gets NA for
-#       smoke_15_rel and is silently dropped by listwise deletion from every
-#       IV regression that uses it as the instrument (Tables 1-3 all do).
-# Grid-complete against mid_month (every CMA-month present in the LFS sample)
-# and fill missing counts to 0 BEFORE demeaning.
 smoke_15 <- mid_month %>%
   distinct(cma_name, ym) %>%
   left_join(smoke_15, by = c("cma_name", "ym")) %>%
   mutate(smoke_15 = replace_na(smoke_15, 0L))
 
 # Step 3: PM2.5 exposure (mean)
-# NOTE: deliberately NOT grid-completed with a fill-to-zero the way smoke is.
-# A CMA-month with no monitoring-station data in its window is genuinely
-# missing PM2.5 (not a known clean-air zero), so pm25_15/pm25_15_rel should
-# stay NA there and those rows should drop via listwise deletion -- that is
-# the correct behaviour, not a bug.
 pm25_15 <- pm25_cma_day %>%
   inner_join(mid_month, by = "cma_name") %>%
   filter(date >= win_start & date <= win_end) %>%
@@ -1198,13 +1179,7 @@ panel_ind <- ind_expo %>%
       TRUE ~ "OTHER"
     ),
     prov_year = paste0(prov_name, "_", year),
-    
-    # NOTE: smoke_15 no longer needs a coalesce-to-0 here -- it's already
-    # grid-completed upstream (see Step 2 above) before smoke_15_rel is
-    # computed. The old coalesce() at this point only patched the raw count
-    # for display purposes; it never touched smoke_15_rel, which is the
-    # actual instrument used in every regression and is now correct from
-    # the start.
+
     
     # Log earnings (for log-linear specs)
     y_log_earn = log(y_earn),  # NA for unemployed, which is CORRECT

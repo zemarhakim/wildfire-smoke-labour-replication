@@ -5,26 +5,33 @@
 #         inputs/raw_data/smoke/smoke.gpkg  (from 02_process_smoke.R)
 #         inputs/raw_data/geo/lcma000b21a_e.shp
 # OUTPUT: outputs/tables/density_robustness_n2020.xlsx
-#         (re-estimates the Table 3 industry spec with Medium+Heavy-only and
-#         Heavy-only smoke-day instruments, for the density-robustness
-#         paragraph in the Online Methods section)
-#
-# NOTE: this script's make_smoke15_density() helper already grid-completes
-# (fills missing CMA-months to 0 smoke days) before demeaning, so it does not
-# have the smoke_15_rel bug that was fixed in 06_process_panel.R -- that's
-# also why, before the fix, this file's N did not match Table 3's N (see
-# README.txt "Known issues and fixes").
 # ==============================================================================
 
 rm(list = ls())
 
 # ---- Path setup --------------------------------------------------------------
-# PROJECT_ROOT is read from an OS environment variable so it survives the
-# rm(list=ls()) above -- if run_all.R (or another script earlier in this
-# session) already set it, that value is used automatically. If not (running
-# this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
-source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
+# Finds the replication folder automatically (no editing needed): looks for
+# the folder containing code/00_config.R, starting from PROJECT_ROOT (if set
+# and valid), then this script's own location, then the working directory.
+.find_root <- function() {
+  starts <- c(Sys.getenv("PROJECT_ROOT"),
+              tryCatch(dirname(sys.frame(1)$ofile), error = function(e) ""),
+              dirname(gsub("~+~", " ", sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)), fixed = TRUE)),
+              getwd())
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(path.expand(s), mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(d, "code", "00_config.R"))) return(d)
+      if (dirname(d) == d) break
+      d <- dirname(d)
+    }
+  }
+  stop("Can't find the replication folder. Either setwd() into it, or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
+}
+Sys.setenv(PROJECT_ROOT = .find_root())
+rm(.find_root)
+source(file.path(Sys.getenv("PROJECT_ROOT"), "code", "00_config.R"))
 
 library(tidyverse)
 library(fixest)
@@ -41,10 +48,6 @@ CMA_PATH  <- CMA_SHP
 OUTFILE   <- file.path(OUT_TABLES, "density_robustness_n2020.xlsx")
 
 # ---- Load Data ----
-# Same column-selection approach as the main tables script. This one also
-# needs `ym` (for the 30-day exposure-window rebuild below) but doesn't need
-# smoke_15_rel, union/pt/small_firm/public_sector, since we're only re-running
-# the Table 3 industry spec, not Table 1 or Table 2.
 needed_cols <- c(
   "cma_name", "year", "month", "ym", "finalwt",
   "y_log_earn", "y_actual_hrs_main", "y_condabs",
@@ -63,12 +66,11 @@ panel_ind <- read_csv(DATA_PATH, col_select = all_of(needed_cols)) %>%
     ind_ag_combined = as.integer(ind_agriculture + ind_forestry + ind_fishing > 0)
   )
 
-panel_n2020 <- panel_ind %>% filter(year != 2020)
+panel_n2020 <- panel_ind %>% filter(year != 2020 & year <= 2024)
 rm(panel_ind)
 gc()
 
 # ---- Rebuild density-filtered smoke instruments (mirrors process_panel.R) ----
-
 message("Loading smoke polygons for density robustness check...")
 
 smoke_raw <- st_read(GPKG_PATH, quiet = TRUE) %>%
@@ -143,7 +145,6 @@ message("Density-filtered instruments merged. NA check: ",
         sum(is.na(panel_n2020$smoke_h_rel)), " (medh / h)")
 
 # ---- Helper Functions (same canonical versions as the main tables script) ----
-
 scale_model <- function(model, factor = 10) {
   model$coefficients <- model$coefficients * factor
   ct <- coeftable(model)
@@ -192,10 +193,8 @@ run_check_write <- function(formula, data, label) {
   invisible(NULL)
 }
 
-# ---- Industry spec, matching Table 3 exactly (17 categories) ----
-# Only the instrument side changes across the two density thresholds below;
-# the endogenous side (pm25_15_rel + interactions) and controls are identical
-# to Table 3, so results are directly comparable to it.
+# ---- Industry spec (17 categories) ----
+# Only the instrument side changes across the two density thresholds below
 
 ind_list <- c("ind_ag_combined", "ind_mining",
               "ind_utilities", "ind_construction", "ind_wholesale", "ind_retail",
@@ -244,6 +243,4 @@ writeData(wb, "SANITY_CHECK", diag_df, rowNames = FALSE)
 saveWorkbook(wb, OUTFILE, overwrite = TRUE)
 
 message("Saved ", OUTFILE, " -- baseline (all-smoke) numbers are NOT repeated here; ",
-        "they're identical to Table3_Earnings/AvgHours/Absent in tables_1_2_3.xlsx. ",
-        "Compare this workbook's fit_pm25_15_rel baseline row against that one for the ",
-        "'consistent across all three density thresholds' claim in the paper's footnote.")
+        "they're identical to Industry_Earnings/AvgHours/Absent in estimates.xlsx. ")

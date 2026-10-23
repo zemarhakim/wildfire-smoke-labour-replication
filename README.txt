@@ -1,6 +1,6 @@
 ================================================================================
 REPLICATION PACKAGE
-Wildfire smoke, longer hours, and the hidden costs to urban workers
+Wildfire smoke increases labor hours among urban workers
 Zemar Hakim and Christopher S. Cotton, Queen's University
 ================================================================================
 
@@ -11,8 +11,7 @@ CONTENTS
 3. Obtaining raw data
 4. File-by-file guide (what each script reads and writes)
 5. Variable dictionary
-6. Known issues and fixes applied in this package
-7. Software requirements
+6. Software requirements
 
 
 ================================================================================
@@ -49,9 +48,9 @@ replication/
     09_figures.R
     run_all.R                   <- master script, runs everything in order
   outputs/
-    tables/    tables_1_2_3.xlsx, density_robustness_n2020.xlsx
-    figures/   fig1_fire_maps.png, fig2_industry.png, fig2_industry_net.png,
-               fig3_smoke_maps.png
+    tables/    estimates.xlsx, density_robustness_n2020.xlsx
+    figures/   fig1_fire_maps.png, fig2_industry_net.png (supplementary), fig3_smoke_maps.png (supplementary)
+    estimate_map.xlsx <- maps all estimates and numbers that appear in the paper to their associated output from the code
 
 
 ================================================================================
@@ -59,28 +58,15 @@ replication/
 ================================================================================
 
 1. Place raw data under inputs/raw_data/ (see Section 3).
-2. Open code/run_all.R and edit the single line:
-       Sys.setenv(PROJECT_ROOT = "~/replication")
-   to point at wherever you've placed this replication/ folder.
-3. Run run_all.R.
+2. Run code/run_all.R.
 
-Every individual script under code/ also works on its own -- each has the
-identical block near the top (after that script's own rm(list = ls())):
-
-    PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
-    source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
-
-PROJECT_ROOT is passed around as an OS environment variable, not an ordinary
-R object. This matters because every stage script starts with
-rm(list = ls()) (so running the whole pipeline in one session doesn't
-accumulate every previous stage's data in memory) -- an ordinary R variable
-would be deleted by the very next stage's rm(list=ls()) before it could be
-used, but an environment variable is untouched by it. If you run a script by
-itself and PROJECT_ROOT isn't already set as an environment variable, edit
-the fallback path in that script. If you run via run_all.R, Sys.setenv() is
-called once at the top and every stage picks it back up automatically --
-you never need to edit more than one line, no matter how you choose to run
-the pipeline.
+No paths need editing. To run a single script on its own, open the
+replication folder (or setwd() into it) and run that script from the top.
+Every script finds the replication folder automatically by looking for the
+folder that contains code/00_config.R. If R can't find it (for example,
+because the working directory is somewhere unrelated), run
+Sys.setenv(PROJECT_ROOT = "/path/to/replication") first, as the error
+message says.
 
 Each stage writes its output to inputs/intermediate/ or outputs/ before the
 next stage runs, so you do not need to re-run the whole pipeline every time.
@@ -96,7 +82,7 @@ LFS PUMF (inputs/raw_data/lfs/)
   Statistics Canada Labour Force Survey Public Use Microdata Files,
   2015-01 through 2025-08, monthly .sav files. Available to
   registered users via the Data Liberation Initiative (DLI) or directly from
-  Statistics Canada (https://www.statcan.gc.ca/en/survey/household/3701).
+  Statistics Canada (https://www150.statcan.gc.ca/n1/pub/71m0001x/71m0001x2021001-eng.htm).
   01_process_lfs.R expects the following folder layout inside lfs/:
     micro<year>_rebased2025/micro<year>_<month>/LFS_<MonthName>_<year>.sav
     (2025 only: micro2025/micro2025_<month>/LFS_<MonthName>_2025.sav)
@@ -192,40 +178,34 @@ Geographic boundary files (inputs/raw_data/geo/)
   30-day rolling PM2.5 and smoke-day exposure aligned to each LFS reference
   week, constructs every outcome/control/industry variable described in
   Section 5 below, and merges everything into the final individual-level
-  panel. See Section 6 for a fix applied in this version relative to earlier
-  versions of this script.
+  panel. 
 
 07_table_replication.R
   Reads:  panel_ind.csv
-  Writes: outputs/tables/tables_1_2_3.xlsx, outputs/figures/fig2_industry.png/.pdf
-  Produces Tables 1, 2, and 3 exactly as published (2020 excluded throughout;
-  hours as log(hours+1); Agriculture/Forestry/Fishing combined into one
-  industry category, Mining kept separate) and the paper's main Figure 2
-  (industry interaction coefficients). Table 3's regressions and Figure 2's
-  underlying models are fit once each and reused for both outputs.
+  Writes: outputs/tables/estimates.xlsx.
+  hours as log(hours+1), Agriculture/Forestry/Fishing combined into one
+  industry category.
 
 08_density_robustness.R
   Reads:  panel_ind.csv, smoke.gpkg, lcma000b21a_e.shp
   Writes: outputs/tables/density_robustness_n2020.xlsx
-  Re-estimates Table 3's industry specification with two alternative smoke
+  Re-estimates industry specification with two alternative smoke
   instruments (Medium+Heavy days only; Heavy days only, per NOAA's aerosol
   optical depth classification) instead of all plume-intersecting days. This
-  is the source for the Online Methods paragraph on density-threshold
-  robustness. Does not repeat the baseline ("all smoke days") fit, since
-  that's identical to Table3_Earnings/AvgHours/Absent in tables_1_2_3.xlsx.
+  is the source for the SI section ‘Robustness: smoke plume density’. 
+  Does not repeat the baseline ("all smoke days") fit, since
+  that's identical to Industry_Earnings/AvgHours/Absent in estimates.xlsx.
 
 09_figures.R
-  Reads:  panel_ind.csv (Figure 2 only), lpr_000b21a_e.shp, lcma000b21a_e.shp,
+  Reads:  panel_ind.csv, lpr_000b21a_e.shp, lcma000b21a_e.shp,
           NFDB_point_20250519.shp (Figure 1 only), smoke.gpkg (Figure 3 only)
   Writes: outputs/figures/fig1_fire_maps.png, fig2_industry_net.png,
           fig3_smoke_maps.png
   Three independently-toggled figures (edit fig_1_fire / fig_2_coef /
   fig_3_smoke at the top of the script):
     Figure 1 -- the paper's published wildfire location maps (Figure 1).
-    Figure 2 (appendix) -- net PM2.5 effect by industry (baseline +
-      interaction combined into one number per industry), with proper
-      covariance-adjusted confidence intervals -- distinct from the
-      interaction-coefficient Figure 2 that 07_table_replication.R produces.
+    Figure 2 (supplementary) -- net PM2.5 effect by industry (baseline +
+      interaction combined into one number per industry).
     Figure 3 (supplementary) -- annual smoke-day density maps, Heavy-density
       plumes only.
   Each figure's data is only loaded if its toggle is on.
@@ -278,11 +258,10 @@ than repeated here.
 
   y_emp            = 1 if lfsstat==1 (employed, at work)
   y_lfp            = 1 if lfsstat in {1,2,3} (in the labour force)
-  y_log_earn       = log(hrlyearn); NA for anyone without a wage (correct --
-                     hrlyearn itself is employees-only, see Section 6)
+  y_log_earn       = log(hrlyearn); NA for anyone without a wage
   y_actual_hrs_main = ahrsmain (actual hours, main job, employees only).
                      Table/figure scripts derive y_log_hrs_p1 = log(hours+1)
-                     from this for all main specifications -- see Section 6.
+                     from this for all main specifications
   y_condabs        = 1 if absent during the reference week, conditional on
                      being employed (lfsstat in {1,2}); NA otherwise
   (y_usual_hrs_main, y_usual_hrs_all, y_actual_hrs_all, y_hrs_away, and
@@ -304,10 +283,10 @@ than repeated here.
   mean_temp      CMA-month mean daily temperature (degrees C)
   total_precip   CMA-month total precipitation (mm)
 
----- 5.5 Job characteristics (Table 1's interaction spec) ----
+---- 5.5 Job characteristics ----
 
   union, pt, small_firm, public_sector   0/1 indicators, defined directly
-  from union/ftptmain/firmsize/cowmain per Section 5.1
+  from union/ftptmain/firmsize/cowmain
 
 ---- 5.6 Industry indicators (naics_21-based, one dummy each) ----
 
@@ -317,8 +296,7 @@ than repeated here.
   ind_business_support, ind_education, ind_healthcare, ind_info_culture,
   ind_accommodation, ind_other_services, ind_public_admin
 
-  Manufacturing is the omitted/reference category in Table 3 and both
-  Figure 2 variants (never appears as its own dummy in the regression
+  Manufacturing is the omitted/reference category (never appears as its own dummy in the regression
   formula). Combined category used throughout the final tables/figures:
     ind_ag_combined (table/figure scripts) /
     ind_ag_forestry_fishing (09_figures.R's appendix figure)

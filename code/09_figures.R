@@ -7,15 +7,6 @@
 # inputs the others need (panel_ind.csv for Figure 2 vs. the geo files for
 # Figures 1 and 3).
 #
-#   Figure 1 (fig_1_fire):  wildfire location maps -- the paper's Figure 1.
-#   Figure 2 (fig_2_coef):  net PM2.5 effects by industry, with proper
-#                           covariance-adjusted confidence intervals on the
-#                           combined (baseline + interaction) effect for each
-#                           industry -- an appendix figure, distinct from the
-#                           interaction-coefficient Figure 2 that
-#                           07_table_replication.R produces.
-#   Figure 3 (fig_3_smoke): annual smoke-day density maps -- supplementary.
-#
 # INPUT:  inputs/intermediate/panel_ind.csv       (Figure 2 only)
 #         inputs/raw_data/geo/lpr_000b21a_e.shp   (Figures 1 and 3)
 #         inputs/raw_data/geo/lcma000b21a_e.shp   (Figures 1 and 3)
@@ -30,12 +21,28 @@ rm(list = ls())
 gc()
 
 # ---- Path setup --------------------------------------------------------------
-# PROJECT_ROOT is read from an OS environment variable so it survives the
-# rm(list=ls()) above -- if run_all.R (or another script earlier in this
-# session) already set it, that value is used automatically. If not (running
-# this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")   # <-- EDIT THIS PATH IF RUNNING STANDALONE
-source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
+# Finds the replication folder automatically (no editing needed): looks for
+# the folder containing code/00_config.R, starting from PROJECT_ROOT (if set
+# and valid), then this script's own location, then the working directory.
+.find_root <- function() {
+  starts <- c(Sys.getenv("PROJECT_ROOT"),
+              tryCatch(dirname(sys.frame(1)$ofile), error = function(e) ""),
+              dirname(gsub("~+~", " ", sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)), fixed = TRUE)),
+              getwd())
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(path.expand(s), mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(d, "code", "00_config.R"))) return(d)
+      if (dirname(d) == d) break
+      d <- dirname(d)
+    }
+  }
+  stop("Can't find the replication folder. Either setwd() into it, or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
+}
+Sys.setenv(PROJECT_ROOT = .find_root())
+rm(.find_root)
+source(file.path(Sys.getenv("PROJECT_ROOT"), "code", "00_config.R"))
 
 library(tidyverse)
 library(fixest)
@@ -48,7 +55,7 @@ library(scales)
 
 # ---- Choice of figure production ----
 # TRUE/FALSE for whichever figure(s) you want to produce this run.
-fig_1_fire  <- F
+fig_1_fire  <- F # We use this one for the paper
 fig_2_coef  <- T
 fig_3_smoke <- F
 
@@ -75,7 +82,7 @@ fit_scale <- function(formula, data) {
 
 # ---- Shared map setup (Figures 1 and 3) --------------------------------------
 fire_months  <- 5:10
-target_years <- c(2015:2019, 2021:2023)   # 8 years, 2020 excluded
+target_years <- c(2015:2024)   # 8 years, 2020 excluded
 crs_proj     <- 3347                       # Statistics Canada Lambert
 
 theme_map <- function() {
@@ -202,12 +209,7 @@ if (fig_1_fire) {
     scale_alpha_manual(values = fire_alphas, drop = FALSE, guide = "none") +
     coord_sf(crs = st_crs(crs_proj), xlim = map_base$xlim_can, ylim = map_base$ylim_can,
              expand = FALSE) +
-    facet_wrap(~ year_lbl, ncol = 4, drop = FALSE) +
-    labs(
-      title    = "Recorded Wildfires over Canada",
-      subtitle = "May\u2013October fire season by size category. Green triangles mark the nine study CMAs.",
-      caption  = "Source: Canadian National Fire Database, Natural Resources Canada."
-    ) +
+    facet_wrap(~ year_lbl, ncol = 5, drop = FALSE) +
     theme_map()
 
   ggsave(file.path(fig_dir, "fig1_fire_maps.png"), fig1, width = 14, height = 7.5, dpi = 300)
@@ -217,8 +219,7 @@ if (fig_1_fire) {
 
 # ==============================================================================
 # FIGURE 2: Net PM2.5 effects by industry, covariance-adjusted CIs
-# (appendix figure -- distinct from the interaction-coefficient Figure 2 that
-# 07_table_replication.R produces)
+# (supplementary)
 # ==============================================================================
 
 if (fig_2_coef) {
@@ -295,7 +296,7 @@ if (fig_2_coef) {
   message("All industry models fitted.")
   message("Figure 2: computing net effects and population-average reference...")
 
-  # ---- Population-average reference (Table 2's pooled baseline IV) ----
+  # ---- Population-average reference (Pooled baseline IV) ----
   get_base_ref <- function(yvar) {
     f <- as.formula(paste0(
       yvar, " ~ mean_temp + total_precip | cma_name^month + year |",
@@ -500,7 +501,7 @@ if (fig_2_coef) {
       subtitle = paste0(
         "Total effect = PM\u2082.\u2085 baseline + industry interaction  \u2502  ",
         "Manufacturing (diamond) is the reference anchor  \u2502  ",
-        "Red line: population average (Table 2)"
+        "Red line: population average"
       ),
       x = "Net coefficient (per 10 \u03bcg/m\u00b3 increase in relative PM\u2082.\u2085)",
       y = NULL,

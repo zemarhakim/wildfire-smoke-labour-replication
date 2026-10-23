@@ -2,19 +2,34 @@
 # 07_table_replication.R
 # ------------------------------------------------------------------------------
 # INPUT:  inputs/intermediate/panel_ind.csv (from 06_process_panel.R)
-# OUTPUT: outputs/tables/tables_1_2_3.xlsx  (Tables 1, 2, 3 as published)
-#         outputs/figures/fig2_industry.pdf / .png (Figure 2 as published)
+# OUTPUT: outputs/tables/estimates.xlsx
 # ==============================================================================
 
 rm(list = ls())
 
 # ---- Path setup --------------------------------------------------------------
-# PROJECT_ROOT is read from an OS environment variable so it survives the
-# rm(list=ls()) above -- if run_all.R (or another script earlier in this
-# session) already set it, that value is used automatically. If not (running
-# this script completely standalone), edit the fallback path below.
-PROJECT_ROOT <- Sys.getenv("PROJECT_ROOT", unset = "~/replication")  # <-- EDIT THIS PATH IF RUNNING STANDALONE
-source(file.path(path.expand(PROJECT_ROOT), "code", "00_config.R"))
+# Finds the replication folder automatically (no editing needed): looks for
+# the folder containing code/00_config.R, starting from PROJECT_ROOT (if set
+# and valid), then this script's own location, then the working directory.
+.find_root <- function() {
+  starts <- c(Sys.getenv("PROJECT_ROOT"),
+              tryCatch(dirname(sys.frame(1)$ofile), error = function(e) ""),
+              dirname(gsub("~+~", " ", sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)), fixed = TRUE)),
+              getwd())
+  for (s in starts[nzchar(starts)]) {
+    d <- normalizePath(path.expand(s), mustWork = FALSE)
+    repeat {
+      if (file.exists(file.path(d, "code", "00_config.R"))) return(d)
+      if (dirname(d) == d) break
+      d <- dirname(d)
+    }
+  }
+  stop("Can't find the replication folder. Either setwd() into it, or run ",
+       "Sys.setenv(PROJECT_ROOT = '/path/to/replication') first.")
+}
+Sys.setenv(PROJECT_ROOT = .find_root())
+rm(.find_root)
+source(file.path(Sys.getenv("PROJECT_ROOT"), "code", "00_config.R"))
 
 library(tidyverse)
 library(fixest)
@@ -29,10 +44,7 @@ fig_dir   <- OUT_FIGURES
 dir.create(fig_dir, showWarnings = FALSE)
 
 # ---- Load Data ----
-# panel_ind.csv has ~208 columns; the full pipeline (Tables 1-3 + Figure 2)
-# only touches 36 of them. col_select means readr never parses the other
-# ~170 into memory at all -- this is the single biggest lever on RAM given
-# how wide the raw file is.
+
 needed_cols <- c(
   "cma_name", "year", "month", "finalwt",
   "y_emp", "y_lfp", "y_log_earn", "y_actual_hrs_main", "y_condabs",
@@ -57,7 +69,8 @@ panel_ind <- read_csv(DATA_PATH, col_select = all_of(needed_cols)) %>%
     ind_consumer_services  = as.integer(ind_retail + ind_accommodation > 0)
   )
 
-panel_n2020 <- panel_ind %>% filter(year != 2020)
+panel_n2020 <- panel_ind %>% filter(year != 2020 & year <= 2024)
+dim(panel_n2020)
 rm(panel_ind)   # nothing below uses the incl.-2020 sample
 gc()
 
@@ -115,7 +128,6 @@ write_sheet <- function(model, sheet_name) {
 }
 
 # Fits, writes the Excel sheet, records diagnostics, discards the model.
-# Used for every non-industry regression (Table 1, Table 2).
 run_check_write <- function(formula, data, label) {
   m <- feols(formula, data = data, weights = ~ finalwt, cluster = ~ cma_name^year)
   s <- scale_model(m)
@@ -127,10 +139,7 @@ run_check_write <- function(formula, data, label) {
   invisible(NULL)
 }
 
-# Fits ONE industry-interaction model and uses it for everything that needs
-# it: the Table 3 Excel sheet AND the Figure 2 plotting data. This replaces
-# what used to be two separate fits of the identical regression (one for the
-# table, one re-fit from scratch for the figure).
+
 run_check_write_industry <- function(formula, data, table_label, outcome_label) {
   m <- feols(formula, data = data, weights = ~ finalwt, cluster = ~ cma_name^year)
   s <- scale_model(m)
@@ -150,9 +159,7 @@ run_check_write_industry <- function(formula, data, table_label, outcome_label) 
 }
 
 # ---- Baseline IV ----
-# 2020 excluded, hours in log(hours+1). Table2_Earnings / Table2_AvgHours /
-# Table2_Absent also supply the "population average" reference line for
-# Figure 2 later -- no separate fit needed for that.
+# 2020 excluded, hours in log(hours+1).
 
 baseline_formula <- function(outcome) {
   as.formula(glue("{outcome} ~ mean_temp + total_precip | ",
@@ -206,7 +213,7 @@ rm(panel_n2020)
 gc()
 
 # ---- Final: Sanity-Check Sheet ----
-# (small tibbles only)
+
 
 diag_df <- bind_rows(diagnostics) %>%
   filter(str_detect(term, "fit_pm25_15_rel")) %>%
@@ -218,6 +225,6 @@ writeData(wb, "SANITY_CHECK", diag_df, rowNames = FALSE)
 saveWorkbook(wb, OUTFILE, overwrite = TRUE)
 
 message("Saved ", OUTFILE, " -- N2020 sample only, hours in log(hours+1), ",
-        "Agriculture/Forestry/Fishing combined. Committed production spec for Tables 1-3.")
+        "Agriculture/Forestry/Fishing combined.")
 
 
