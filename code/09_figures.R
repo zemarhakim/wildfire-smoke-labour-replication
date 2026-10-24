@@ -55,8 +55,8 @@ library(scales)
 
 # ---- Choice of figure production ----
 # TRUE/FALSE for whichever figure(s) you want to produce this run.
-fig_1_fire  <- F # We use this one for the paper
-fig_2_coef  <- T
+fig_1_fire  <- T # We use this one for the paper
+fig_2_coef  <- F
 fig_3_smoke <- F
 
 fig_dir <- OUT_FIGURES
@@ -82,7 +82,7 @@ fit_scale <- function(formula, data) {
 
 # ---- Shared map setup (Figures 1 and 3) --------------------------------------
 fire_months  <- 5:10
-target_years <- c(2015:2024)   # 8 years, 2020 excluded
+target_years <- c(2015:2019, 2021:2024)   # 9 years, 2020 excluded
 crs_proj     <- 3347                       # Statistics Canada Lambert
 
 theme_map <- function() {
@@ -209,10 +209,10 @@ if (fig_1_fire) {
     scale_alpha_manual(values = fire_alphas, drop = FALSE, guide = "none") +
     coord_sf(crs = st_crs(crs_proj), xlim = map_base$xlim_can, ylim = map_base$ylim_can,
              expand = FALSE) +
-    facet_wrap(~ year_lbl, ncol = 5, drop = FALSE) +
+    facet_wrap(~ year_lbl, ncol = 3, drop = FALSE) +
     theme_map()
 
-  ggsave(file.path(fig_dir, "fig1_fire_maps.png"), fig1, width = 14, height = 7.5, dpi = 300)
+    ggsave(file.path(fig_dir, "fig1_fire_maps.png"), fig1, width = 10, height = 11.5, dpi = 300)
 
   message("Figure 1 saved.")
 }
